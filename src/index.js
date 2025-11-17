@@ -33,6 +33,8 @@ import suggest from './suggest.js';
 import search from './search.js';
 
 const app = express();
+// ✅ 프록시 신뢰: Railway 같은 프록시/LB 뒤에서 필수
+app.set('trust proxy', true);
 
 /* ── 프록시 신뢰(필수): Railway/프록시 뒤에서 XFF 사용 ─────────────── */
 if (process.env.NODE_ENV === 'production') {
