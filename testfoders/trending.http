@@ -1,0 +1,71 @@
+@base = http://localhost:3000
+@json = application/json
+@ts = {{$timestamp}}
+@rand = {{$randomInt 1000 9999}}
+
+###
+# 0) 헬스체크
+GET {{base}}/health
+
+
+###
+# 1) 로그인 → access/refresh 확보
+#    (이미 있는 계정으로 아이디/비번만 바꿔서 사용)
+# @name login
+POST {{base}}/auth/login
+Content-Type: {{json}}
+
+{
+  "usernameOrEmail": "dummy2",
+  "password": "pass1234"
+}
+
+
+###
+# 2) refresh → access 재발급
+# @name refresh
+POST {{base}}/auth/refresh
+Content-Type: {{json}}
+
+{
+  "refresh": "{{login.response.body.refresh}}"
+}
+
+
+###
+# 3) (선택) 트렌딩용 샘플 게시글 1개 작성
+#    → content 안에 #캠퍼스라이프 같은 태그를 넣어야
+#      post_tag 테이블에 기록되고, 나중에 트렌딩에도 잡힘.
+#    엔드포인트는 프로젝트에 맞게:
+#    - 네가 글 작성할 때 쓰는 URL이 `/posts` 면 /posts 로,
+#    - `/feed/home` 이면 그대로 두고 사용.
+# @name sample_post
+POST {{base}}/posts
+Authorization: Bearer {{refresh.response.body.access}}
+Content-Type: {{json}}
+
+{
+  "title": "트렌딩 태그 테스트 v{{rand}}",
+  "content": "트렌딩 태그 테스트용 본문입니다. #캠퍼스라이프 #피크닉바이브 ts={{ts}}",
+  "community_id": 1
+}
+
+
+###
+# 4) 트렌딩 태그 조회 - 기본(최근 7일, 상위 10개)
+#    → tags.trending.js 에서 days / limit 기본값 그대로 사용할 때
+GET {{base}}/tags/trending
+# Authorization: Bearer {{refresh.response.body.access}}
+
+
+###
+# 5) 트렌딩 태그 조회 - 전체 기간(예: 365일) 기준 상위 20개
+#    → 태그 사용량이 아직 적을 때 테스트용으로 추천
+GET {{base}}/tags/trending?days=365&limit=20
+# Authorization: Bearer {{refresh.response.body.access}}
+
+
+###
+# 6) 트렌딩 태그 조회 - 최근 3일 기준 상위 5개
+GET {{base}}/tags/trending?days=3&limit=5
+# Authorization: Bearer {{refresh.response.body.access}}
