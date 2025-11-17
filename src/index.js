@@ -36,7 +36,7 @@ import search from './search.js';
 const app = express();
 
 // 프록시(Heroku/Railway 등) 뒤에 있을 때 IP/HTTPS 신뢰
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 
 /* ── 보안/성능 기본 미들웨어 ─────────────────────────────────────────── */
 app.use(
