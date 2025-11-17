@@ -1,0 +1,29 @@
+@base = http://localhost:3000
+@json = application/json
+@ts = {{$timestamp}}
+@rand = {{$randomInt 1000 9999}}
+
+
+
+### 1) Login
+# @name login
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{
+  "usernameOrEmail": "dummy2",
+  "password": "pass1234"
+}
+
+###
+### 3) refresh (login 응답의 refresh로 새 access 발급)
+# @name refresh
+POST {{base}}/auth/refresh
+Content-Type: {{json}}
+
+{ "refresh": "{{login.response.body.refresh}}" }
+
+
+###
+GET {{base}}/feed/home?limit=1
+Authorization: Bearer {{refresh.response.body.access}}

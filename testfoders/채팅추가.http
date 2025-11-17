@@ -1,0 +1,81 @@
+@base = http://localhost:3000
+@json = application/json
+@q = test            # 검색어 기본값 (원하면 바꿔서 사용)
+@other = 42          # DM 대상 userId (검색 결과 보고 수정)
+
+### 0) 로그인 (access/refresh 확보)
+# @name login
+POST {{base}}/auth/login
+Content-Type: {{json}}
+
+{
+  "usernameOrEmail": "dummy2",
+  "password": "pass1234"
+}
+
+### 1) refresh로 새 access 받기
+# @name refresh
+POST {{base}}/auth/refresh
+Content-Type: {{json}}
+
+{
+  "refresh": "{{login.response.body.refresh}}"
+}
+
+### 2) 유저 검색 (채팅 대상 찾기)
+# @name search_users
+GET {{base}}/search/users?q={{q}}&limit=10
+Authorization: Bearer {{refresh.response.body.access}}
+
+### 2-옵션) 통합 검색: @멘션으로 바로 후보 찾기
+# @name search_mention
+GET {{base}}/search?q=@{{q}}
+Authorization: Bearer {{refresh.response.body.access}}
+
+### 3) DM 열기/재사용 (상대: @other)
+# @name open_dm
+POST {{base}}/chats/dm/{{other}}
+Authorization: Bearer {{refresh.response.body.access}}
+
+### 4) DM에 메시지 보내기
+# 위 open_dm 응답에서 room id 사용 (예: {{open_dm.response.body.id}})
+# @name send_message
+POST {{base}}/chats/{{open_dm.response.body.id}}/messages
+Authorization: Bearer {{refresh.response.body.access}}
+Content-Type: {{json}}
+
+{
+  "message": "채팅 검색 E2E 테스트 메시지입니다! 😊"
+}
+
+### 5) 내 채팅방 목록 (전체)
+# @name list_chats
+GET {{base}}/chats?limit=20
+Authorization: Bearer {{refresh.response.body.access}}
+
+### 5-옵션) DM만 목록
+# @name list_dm
+GET {{base}}/chats/dm?limit=20
+Authorization: Bearer {{refresh.response.body.access}}
+
+### 6) 방 메시지 히스토리 조회 (페이지네이션)
+# 처음 페이지
+# @name room_messages
+GET {{base}}/chats/{{open_dm.response.body.id}}/messages?limit=30
+Authorization: Bearer {{refresh.response.body.access}}
+
+### 6-옵션) 다음 페이지 예시 (위 응답 next_cursor 값으로 교체)
+# @name room_messages_next
+GET {{base}}/chats/{{open_dm.response.body.id}}/messages?limit=30&cursor=__커서값__
+Authorization: Bearer {{refresh.response.body.access}}
+
+### (옵션) 그룹 채팅 생성 (나 + 2명 이상)
+# @name create_group
+POST {{base}}/chats/groups
+Authorization: Bearer {{refresh.response.body.access}}
+Content-Type: {{json}}
+
+{
+  "title": "동스토리 테스트 그룹방",
+  "user_ids": [42, 43]
+}
