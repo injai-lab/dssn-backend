@@ -24,7 +24,7 @@ import users from './routes/users.js';
 
 import register from './routes/auth.register.js';
 import login from './routes/auth.login.js';
-import refresh from './routes/auth.refresh.js'; // 파일 위치 그대로라면 OK
+import refresh from './routes/auth.refresh.js';
 import logout from './routes/auth.logout.js';
 import verify from './routes/auth.verify.js';
 
@@ -33,6 +33,12 @@ import suggest from './suggest.js';
 import search from './search.js';
 
 const app = express();
+
+/* ── 프록시 신뢰(필수): Railway/프록시 뒤에서 XFF 사용 ─────────────── */
+if (process.env.NODE_ENV === 'production') {
+  // 한 홉(LB 1개)만 신뢰. 불확실하면 true 사용 가능.
+  app.set('trust proxy', 1);
+}
 
 /* ── 보안/성능 기본 미들웨어 ─────────────────────────────────────────── */
 app.use(
@@ -45,19 +51,28 @@ app.use(express.json({ limit: '1mb' }));
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-/* ── 레이트 리밋 ─────────────────────────────────────────────────────── */
+/* ── 레이트 리밋 ───────────────────────────────────────────────────────
+   v7에서 X-Forwarded-For 관련 검증이 강화됨. trust proxy를 켰지만,
+   혹시라도 환경에 따라 막히지 않도록 validate 완화 + keyGenerator 고정 */
 const globalLimiter = rateLimit({
   windowMs: 60_000,
-  max: 120,
+  limit: 120, // (= 예전 max:120)
   standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false }, // 신뢰 프록시 환경에서 오탐 방지
+  keyGenerator: (req) => req.ip,
+  skip: (req) => req.path === '/health', // 헬스체크 제외(선택)
 });
 app.use(globalLimiter);
 
 // 로그인 엔드포인트 전용 리밋 (라우터 마운트보다 먼저)
 const loginLimiter = rateLimit({
   windowMs: 10 * 60_000,
-  max: 50,
+  limit: 50,
   standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => req.ip,
 });
 app.use('/auth/login', loginLimiter);
 
@@ -76,7 +91,6 @@ app.get('/health', async (_req, res, next) => {
 });
 
 /* ── 라우트 마운트 ──────────────────────────────────────────────────── */
-// 리소스 라우트
 app.use('/posts', posts);
 app.use('/feed', feed);
 app.use('/comments', comments);
@@ -92,12 +106,12 @@ app.use('/search', search);
 app.use('/', interactions);
 app.use('/', chats);
 
-// 인증 라우트 — **중요: 모두 '/auth'에만 마운트**
-app.use('/auth', register); // 파일 안: r.post('/register', ...)
-app.use('/auth', login); // 파일 안: r.post('/login', ...)
-app.use('/auth', refresh); // 파일 안: r.post('/refresh', ...)
-app.use('/auth', logout); // 파일 안: r.post('/logout'), r.post('/logout/all')
-app.use('/auth', verify); // 파일 안: r.post('/verify-email'), r.post('/resend-code')
+// 인증 라우트 — 모두 '/auth'에 마운트
+app.use('/auth', register);
+app.use('/auth', login);
+app.use('/auth', refresh);
+app.use('/auth', logout);
+app.use('/auth', verify);
 
 /* ── 정적/업로드 ────────────────────────────────────────────────────── */
 app.use(
