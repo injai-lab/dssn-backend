@@ -2,6 +2,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import fs from 'fs'; // ✅ fd -> fs 로 수정
 import cors from 'cors';
 import morgan from 'morgan';
 import helmet from 'helmet';
@@ -33,14 +34,9 @@ import suggest from './suggest.js';
 import search from './search.js';
 
 const app = express();
-// ✅ 프록시 신뢰: Railway 같은 프록시/LB 뒤에서 필수
-app.set('trust proxy', true);
 
-/* ── 프록시 신뢰(필수): Railway/프록시 뒤에서 XFF 사용 ─────────────── */
-if (process.env.NODE_ENV === 'production') {
-  // 한 홉(LB 1개)만 신뢰. 불확실하면 true 사용 가능.
-  app.set('trust proxy', 1);
-}
+// 프록시(Heroku/Railway 등) 뒤에 있을 때 IP/HTTPS 신뢰
+app.set('trust proxy', 1);
 
 /* ── 보안/성능 기본 미들웨어 ─────────────────────────────────────────── */
 app.use(
@@ -53,28 +49,19 @@ app.use(express.json({ limit: '1mb' }));
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-/* ── 레이트 리밋 ───────────────────────────────────────────────────────
-   v7에서 X-Forwarded-For 관련 검증이 강화됨. trust proxy를 켰지만,
-   혹시라도 환경에 따라 막히지 않도록 validate 완화 + keyGenerator 고정 */
+/* ── 레이트 리밋 ─────────────────────────────────────────────────────── */
 const globalLimiter = rateLimit({
   windowMs: 60_000,
-  limit: 120, // (= 예전 max:120)
+  max: 120,
   standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false }, // 신뢰 프록시 환경에서 오탐 방지
-  keyGenerator: (req) => req.ip,
-  skip: (req) => req.path === '/health', // 헬스체크 제외(선택)
 });
 app.use(globalLimiter);
 
 // 로그인 엔드포인트 전용 리밋 (라우터 마운트보다 먼저)
 const loginLimiter = rateLimit({
   windowMs: 10 * 60_000,
-  limit: 50,
+  max: 50,
   standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false },
-  keyGenerator: (req) => req.ip,
 });
 app.use('/auth/login', loginLimiter);
 
@@ -82,6 +69,8 @@ app.use('/auth/login', loginLimiter);
 app.get('/', (_req, res) =>
   res.json({ ok: true, service: 'DSSN API', ts: new Date().toISOString() })
 );
+
+app.get('/healthz', (_req, res) => res.send('ok'));
 
 app.get('/health', async (_req, res, next) => {
   try {
@@ -92,7 +81,26 @@ app.get('/health', async (_req, res, next) => {
   }
 });
 
+// ✅ 진단용: 현재 접속 DB와 user 카운트 확인(확인 끝나면 지워도 됨)
+app.get('/health/db', async (_req, res, next) => {
+  try {
+    const [db] = await prisma.$queryRaw`SELECT DATABASE() AS db`;
+    // 주의: user는 예약어가 아니지만 백틱으로 감싸 안전하게
+    const [cnt] = await prisma.$queryRawUnsafe(
+      'SELECT COUNT(*) AS cnt FROM `user`'
+    );
+    res.json({
+      ok: true,
+      db: db?.db ?? null,
+      userCount: Number(cnt?.cnt ?? 0),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* ── 라우트 마운트 ──────────────────────────────────────────────────── */
+// 리소스 라우트
 app.use('/posts', posts);
 app.use('/feed', feed);
 app.use('/comments', comments);
@@ -108,17 +116,20 @@ app.use('/search', search);
 app.use('/', interactions);
 app.use('/', chats);
 
-// 인증 라우트 — 모두 '/auth'에 마운트
-app.use('/auth', register);
-app.use('/auth', login);
-app.use('/auth', refresh);
-app.use('/auth', logout);
-app.use('/auth', verify);
+// 인증 라우트 — **중요: 모두 '/auth'에만 마운트**
+app.use('/auth', register); // r.post('/register', ...)
+app.use('/auth', login); // r.post('/login', ...)
+app.use('/auth', refresh); // r.post('/refresh', ...)
+app.use('/auth', logout); // r.post('/logout'), r.post('/logout/all')
+app.use('/auth', verify); // r.post('/verify-email'), r.post('/resend-code')
 
 /* ── 정적/업로드 ────────────────────────────────────────────────────── */
+const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 app.use(
   '/static',
-  express.static(path.resolve('uploads'), {
+  express.static(path.resolve(UPLOAD_DIR), {
     fallthrough: true,
     immutable: true,
     maxAge: '30d',
