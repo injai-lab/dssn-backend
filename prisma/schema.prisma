@@ -23,7 +23,6 @@ model user {
   university                                        String              @default("동서울대학교")
   email_verified                                    Boolean             @default(false)
   verification_token                                String?             @db.VarChar(64)
-  verification_sent_at                              DateTime?           @db.DateTime(0)
   token_version                                     Int                 @default(0)
   status                                            user_status         @default(active)
   website                                           String?             @db.VarChar(255)
