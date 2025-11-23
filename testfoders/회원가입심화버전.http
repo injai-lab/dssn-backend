@@ -1,0 +1,20 @@
+@baseUrl = https://dssn-backend-production.up.railway.app
+@json = application/json
+
+### 0) Health
+GET {{baseUrl}}/health
+
+### 1) 회원가입
+POST {{baseUrl}}/auth/register
+Content-Type: {{json}}
+
+{
+  "username": "2999999",
+  "email": "2999999@du.ac.kr",
+  "password": "pass1234",
+  "nickname": "pepe_owang_",
+  "name": "왕인재",
+  "department": "컴퓨터소프트웨어학과",
+  "gender": "male",
+  "birthday": "2099-11-22"
+}

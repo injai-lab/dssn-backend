@@ -2,6 +2,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import fs from 'fs'; // ✅ fd -> fs 로 수정
 import cors from 'cors';
 import morgan from 'morgan';
 import helmet from 'helmet';
@@ -24,7 +25,7 @@ import users from './routes/users.js';
 
 import register from './routes/auth.register.js';
 import login from './routes/auth.login.js';
-import refresh from './routes/auth.refresh.js'; // 파일 위치 그대로라면 OK
+import refresh from './routes/auth.refresh.js';
 import logout from './routes/auth.logout.js';
 import verify from './routes/auth.verify.js';
 
@@ -33,6 +34,9 @@ import suggest from './suggest.js';
 import search from './search.js';
 
 const app = express();
+
+// 프록시(Heroku/Railway 등) 뒤에 있을 때 IP/HTTPS 신뢰
+app.set('trust proxy', true);
 
 /* ── 보안/성능 기본 미들웨어 ─────────────────────────────────────────── */
 app.use(
@@ -66,10 +70,30 @@ app.get('/', (_req, res) =>
   res.json({ ok: true, service: 'DSSN API', ts: new Date().toISOString() })
 );
 
+app.get('/healthz', (_req, res) => res.send('ok'));
+
 app.get('/health', async (_req, res, next) => {
   try {
     const rows = await prisma.$queryRaw`SELECT NOW() as now`;
     res.json({ ok: true, dbTime: rows?.[0]?.now ?? null });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ✅ 진단용: 현재 접속 DB와 user 카운트 확인(확인 끝나면 지워도 됨)
+app.get('/health/db', async (_req, res, next) => {
+  try {
+    const [db] = await prisma.$queryRaw`SELECT DATABASE() AS db`;
+    // 주의: user는 예약어가 아니지만 백틱으로 감싸 안전하게
+    const [cnt] = await prisma.$queryRawUnsafe(
+      'SELECT COUNT(*) AS cnt FROM `user`'
+    );
+    res.json({
+      ok: true,
+      db: db?.db ?? null,
+      userCount: Number(cnt?.cnt ?? 0),
+    });
   } catch (e) {
     next(e);
   }
@@ -93,16 +117,19 @@ app.use('/', interactions);
 app.use('/', chats);
 
 // 인증 라우트 — **중요: 모두 '/auth'에만 마운트**
-app.use('/auth', register); // 파일 안: r.post('/register', ...)
-app.use('/auth', login); // 파일 안: r.post('/login', ...)
-app.use('/auth', refresh); // 파일 안: r.post('/refresh', ...)
-app.use('/auth', logout); // 파일 안: r.post('/logout'), r.post('/logout/all')
-app.use('/auth', verify); // 파일 안: r.post('/verify-email'), r.post('/resend-code')
+app.use('/auth', register); // r.post('/register', ...)
+app.use('/auth', login); // r.post('/login', ...)
+app.use('/auth', refresh); // r.post('/refresh', ...)
+app.use('/auth', logout); // r.post('/logout'), r.post('/logout/all')
+app.use('/auth', verify); // r.post('/verify-email'), r.post('/resend-code')
 
 /* ── 정적/업로드 ────────────────────────────────────────────────────── */
+const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 app.use(
   '/static',
-  express.static(path.resolve('uploads'), {
+  express.static(path.resolve(UPLOAD_DIR), {
     fallthrough: true,
     immutable: true,
     maxAge: '30d',

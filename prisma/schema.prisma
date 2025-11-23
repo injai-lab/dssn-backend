@@ -21,7 +21,6 @@ model user {
   department                                        String?
   birthday                                          DateTime?           @db.Date
   university                                        String              @default("동서울대학교")
-  email_verified                                    Boolean             @default(false)
   verification_token                                String?             @db.VarChar(64)
   token_version                                     Int                 @default(0)
   status                                            user_status         @default(active)
